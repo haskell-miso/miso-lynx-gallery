@@ -2,11 +2,11 @@
   description = "miso-lynx-gallery — the LynxJS Product Gallery, in Haskell (miso-native)";
 
   inputs = {
-    miso.url = "github:dmjio/miso";
+    miso.url = "github:dmjio/miso/dual-thread";
   };
-  # For local miso development (before your changes are pushed), override the
-  # input to a local checkout — note the ABSOLUTE path (relative `path:../miso`
-  # doesn't resolve correctly from a git flake):
+  # For local miso development (with uncommitted changes), override the input to
+  # a local checkout — note the ABSOLUTE path (relative `path:../miso` doesn't
+  # resolve correctly from a git flake):
   #
   #   nix build --override-input miso path:/absolute/path/to/miso
 
