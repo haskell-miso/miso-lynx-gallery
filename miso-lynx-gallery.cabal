@@ -1,0 +1,32 @@
+cabal-version: 2.2
+name: miso-lynx-gallery
+version: 0.1.0.0
+synopsis: The Lynx "Product Gallery" tutorial, in Haskell via miso-native
+description:
+  A port of the LynxJS "Product Gallery" tutorial
+  (<https://lynxjs.org/learn/gallery>) to miso's native (LynxJS dual-thread)
+  backend: a two-column waterfall @\<list\>@ of furniture cards with tap-to-like
+  hearts and native auto-scroll, compiled to a @.lynx.bundle@ via the GHC
+  JavaScript backend + rspeedy.
+category: Web
+license: BSD-3-Clause
+build-type: Simple
+
+common options
+  if arch(javascript)
+    ld-options:
+      -sENVIRONMENT=shell -sWASM=0 -sEXPORTED_RUNTIME_METHODS=HEAP8
+
+  if !arch(wasm32) && !arch(javascript)
+    ghc-options:
+      -O0
+
+executable miso-lynx-gallery
+  import:
+    options
+  main-is:
+    Main.hs
+  build-depends:
+    base, miso
+  default-language:
+    Haskell2010

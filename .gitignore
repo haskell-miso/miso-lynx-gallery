@@ -1,0 +1,7 @@
+result
+result-*
+build/
+dist-newstyle/
+*.hi
+*.o
+.DS_Store

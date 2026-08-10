@@ -1,0 +1,14 @@
+-- Build the gallery against a local miso checkout (sibling of this repo).
+-- The flake's devShell provides the GHC JavaScript-backend toolchain; cabal
+-- finds the `miso` library here. Point this at a source-repository-package
+-- (github.com/dmjio/miso) instead if you don't keep miso checked out alongside.
+packages:
+  .
+  ../miso
+
+allow-newer:
+  all:base
+
+-- miso's native (LynxJS dual-thread) backend + TH lens generation.
+package miso
+  flags: +template-haskell +native
