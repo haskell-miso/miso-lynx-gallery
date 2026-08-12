@@ -1,101 +1,152 @@
-/* Global stylesheet compiled into the Lynx bundle by the `bundle-lynx` justfile
-   recipe (imported via the rspeedy wrapper entry). Rules here are compiled under
-   the global cssId 0 that the runtime scopes the page to (ts/miso/native/mts.ts
-   `__SetCSSId([page], 0)`), so `className "foo"` in Haskell resolves against them
-   on device. This is the Lynx way to do class-based CSS — runtime `document`
-   style injection (Sheet/Href/Style) does not work on Lynx. */
-
-.foo {
-  color: crimson;
-  background-color: #fff0f0;
-  padding: 16px;
-  border-radius: 10px;
-}
+/* Global stylesheet compiled into the Lynx bundle by miso's `mkLynxBundle`
+   (imported via the rspeedy wrapper entry). Rules here are compiled under the
+   global cssId 0 that the runtime scopes the page to, so `className "foo"` in
+   Haskell resolves against them on device. This is the Lynx way to do class-
+   based CSS — runtime `document` style injection does not work on Lynx. */
 
 /* ------------------------------------------------------------------------- *
- * LynxGallery.hs — port of https://lynxjs.org/learn/gallery                  *
- * Keyframe animations (ripple, flow) and the tutorial's class rules. Where   *
- * the tutorial combined two classes on one node (scrollbar-effect+glow,      *
- * circle+circleAfter), we fold them into a single self-contained class,      *
- * since native className resolves one token per node.                        *
+ * Main.hs — exact port of lynx-family/lynx-examples/examples/swiper.         *
+ * These rules are the sample's SafeArea/Page/Swiper/Indicator .scss files    *
+ * flattened into one sheet. Where the sample toggled a second class          *
+ * (`indicator-item active`), native `className` takes one token per node, so *
+ * the active dot is a single self-contained `.indicator-item-active`.        *
+ * Only `.swiper-container`'s `transform` is written from the main thread;    *
+ * everything here is declarative.                                            *
  * ------------------------------------------------------------------------- */
 
-/* The Lynx root page sits behind our wrapper; 100vh doesn't cover the
-   status-bar / home-indicator safe areas, so paint the page black too to kill
-   the white bands at the very top and bottom. */
 page {
-  background-color: black;
+  background-color: #000;
 }
 
-.gallery-wrapper {
+/* Components/SafeArea/styles.scss — height pinned to 100vh (miso's page root
+   doesn't resolve a percentage height the way ReactLynx's does). */
+.safe-area {
+  width: 100%;
   height: 100vh;
-  background-color: black;
-  position: relative;
-}
-
-.list {
-  width: 100vw;
   padding-bottom: 20px;
-  padding-left: 20px;
-  padding-right: 20px;
-  height: 100%;
-  background-color: black;
-  list-main-axis-gap: 10px;
-  list-cross-axis-gap: 10px;
+  display: flex;
+  flex-direction: column;
+  background-color: #000;
 }
 
-.picture-wrapper {
-  border-radius: 10px;
-  overflow: hidden;
+/* Components/Page/styles.scss */
+.page-container {
+  flex: 1;
+  width: 100%;
+  padding-bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: #000;
+}
+
+/* Swiper/styles.scss */
+.swiper-wrapper {
+  flex: 1;
   width: 100%;
 }
 
-.like-icon {
+.swiper-container {
+  display: linear;
+  linear-orientation: horizontal;
+  height: 100%;
+}
+
+.swiper-item {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+/* Components/Indicator/styles.scss */
+.indicator {
   position: absolute;
-  display: grid;
-  justify-items: center;
+  bottom: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
   align-items: center;
-  top: 0px;
-  right: 0px;
-  width: 64px;
-  height: 64px;
 }
 
-.circle {
-  position: absolute;
-  top: calc(50% - 14px);
-  left: calc(50% - 14px);
-  height: 28px;
-  width: 28px;
-  border: 2px solid red;
+.indicator-item {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  transform: scale(0);
-  opacity: 1;
-  animation: ripple 1s 1 ease-out;
+  margin: 0 5px;
+  background-color: rgba(255, 255, 255, 0.5);
 }
 
-/* tutorial's `.circle.circleAfter` — same as .circle, but delayed */
-.circle-after {
-  position: absolute;
-  top: calc(50% - 14px);
-  left: calc(50% - 14px);
-  height: 28px;
-  width: 28px;
-  border: 2px solid red;
+.indicator-item-active {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  transform: scale(0);
-  opacity: 1;
-  animation: ripple 1s 1 ease-out;
-  animation-delay: 0.5s;
+  margin: 0 5px;
+  background-color: #ff6740;
 }
 
-@keyframes ripple {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(3.4);
-    opacity: 0;
-  }
+/* Components/Page/styles.scss (continued) */
+.card-detail-container {
+  position: absolute;
+  width: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(17, 17, 19, 0.00) 29.47%,
+    #111113 99.97%
+  );
+  bottom: 75px;
+}
+
+.card-detail {
+  background-color: #282e38;
+  border-radius: 12px;
+  width: calc(100% - 40px);
+  margin: 0 20px 18px 20px;
+  padding: 21px;
+  box-sizing: border-box;
+}
+
+.card-detail-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.card-detail-title-price {
+  font-size: 24px;
+  color: #ff6740;
+}
+
+.card-detail-amount {
+  color: rgba(255, 255, 255, 0.85);
+  text-align: right;
+  font-size: 12px;
+}
+
+.card-detail-desc {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-detail-desc-text {
+  font-size: 17px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.order-button {
+  background-color: #ff6740;
+  border-radius: 8px;
+  width: calc(100% - 40px);
+  margin: 0 20px;
+  padding: 13px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.order-text {
+  font-size: 17px;
+  color: #fff;
 }
