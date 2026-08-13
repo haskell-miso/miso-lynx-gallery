@@ -64,11 +64,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1786596415,
-        "narHash": "sha256-sqnsJ0HBXVxbrVjrBboYyX9QLL8kSdmEgifCR+Dt1MI=",
+        "lastModified": 1786600385,
+        "narHash": "sha256-X5pApj/hwvqZqEdvxYEEjSnhC8C6cY582BL2RVtV+YU=",
         "owner": "dmjio",
         "repo": "miso",
-        "rev": "9bb25faf59bd6b80d45f7d3220db356ca3573c1c",
+        "rev": "80825dc1eab090c50a2f03df11584dbbfa375298",
         "type": "github"
       },
       "original": {
