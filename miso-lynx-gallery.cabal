@@ -27,6 +27,6 @@ executable miso-lynx-gallery
   main-is:
     Main.hs
   build-depends:
-    base, miso
+    base, miso, mtl
   default-language:
     Haskell2010

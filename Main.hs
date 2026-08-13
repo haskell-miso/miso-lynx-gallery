@@ -3,7 +3,9 @@
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE StaticPointers     #-}
+{-# LANGUAGE QuasiQuotes        #-}
 {-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE TemplateHaskell    #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE DerivingStrategies #-}
 -----------------------------------------------------------------------------
@@ -36,23 +38,48 @@ import           Miso.Native
 import           Miso.Html.Property (className)
 import qualified Miso.CSS as CSS
 import           Miso.String (MisoString, ms)
-import           Miso.DSL
-  ( jsg, (!), fromJSValUnchecked, isUndefined, jsNull
-  , requestAnimationFrame, syncCallback1, freeFunction, Function(..) )
-import           Miso.Native.MainThread (setStyleProperty, setStyleProperties)
+import           Miso.FFI.QQ (js)
+import           Miso.Lens
+import           Miso.Lens.TH
+import           Miso.DSL (jsg, (!), fromJSValUnchecked)
+import           Miso.Native.MainThread
+  ( setStyleProperty, setStyleProperties, eachFrame
+  , MainThreadRef, mainThreadRef, readMainThreadRef
+  , modifyMainThreadRef, modifyMainThreadRef_ )
 import           System.IO.Unsafe (unsafePerformIO)
-import           Data.IORef (IORef, newIORef, readIORef, writeIORef, modifyIORef')
-import           Control.Monad (when, void)
+import           Control.Monad (when)
 -----------------------------------------------------------------------------
-import qualified Miso.Native.Element.View.Event     as VE
-import qualified Miso.Native.Element.Image.Property  as IP
+import qualified Miso.Native.Element.View.Event as VE
+import qualified Miso.Native.Element.Image.Property as IP
 -----------------------------------------------------------------------------
+import           Control.Monad.State
 import           Miso.JSON (ToJSON, FromJSON)
 import           GHC.Generics
 -----------------------------------------------------------------------------
 -- | Number of product photos in the swiper (assets @1.png@ .. @8.png@).
 numPics :: Int
 numPics = 8
+-----------------------------------------------------------------------------
+-- | All of the swiper's main-thread scratch — the sample's @useMainThreadRef@s,
+-- grouped into one record behind a single 'MainThreadRef' (miso-native's
+-- @useMainThreadRef@ equivalent). It is touched only inside MTS handlers / rAF
+-- callbacks, so it never races the background thread. (It is a module global
+-- rather than per-instance state; fine for the single mounted swiper here.)
+data Drag = Drag
+  { _startX      :: Double        -- ^ finger X at @touchstart@
+  , _startOffset :: Double        -- ^ committed offset the drag began from
+  , _curOffset   :: Double        -- ^ committed track offset (px; 0 at page 0, negative onward)
+  , _pageIndex   :: Int           -- ^ page currently shown under the finger
+  , _active      :: Bool          -- ^ finger currently down?
+  , _wantOffset  :: Double        -- ^ latest offset the finger wants (written by @touchmove@)
+  , _applied     :: Double        -- ^ offset the follow loop last painted (skip idle frames)
+  , _velocity    :: Double        -- ^ smoothed finger velocity, px/ms (negative = swiping forward)
+  , _lastTs      :: Double        -- ^ frame timestamp of the last velocity sample
+  , _lastWant    :: Double        -- ^ 'wantOffset' at the last velocity sample
+  , _track       :: Maybe DOMRef  -- ^ the track element, cached so click-to-jump can reach it
+  }
+-----------------------------------------------------------------------------
+$(makeLenses ''Drag)
 -----------------------------------------------------------------------------
 data Action
   = TouchStart Double DOMRef
@@ -88,13 +115,10 @@ swiperComponent = component (Model 0) updateModel viewModel
 -- realm forces this CAF against its own @lynx.SystemInfo@; both report the same
 -- device width, so it is consistent across the MTS/BTS split.
 itemWidthPx :: Double
-itemWidthPx = unsafePerformIO $ do
-  si <- jsg "lynx" >>= (! ("SystemInfo" :: MisoString))
-  missing <- isUndefined si
-  if missing then pure 0 else do
-    w <- fromJSValUnchecked =<< si ! ("pixelWidth" :: MisoString)
-    r <- fromJSValUnchecked =<< si ! ("pixelRatio" :: MisoString)
-    pure (if r <= 0 then 0 else w / r)
+itemWidthPx = unsafePerformIO [js|
+  var si = lynx.SystemInfo;
+  return (si && si.pixelRatio > 0) ? (si.pixelWidth / si.pixelRatio) : 0;
+|]
 {-# NOINLINE itemWidthPx #-}
 -----------------------------------------------------------------------------
 -- Track geometry, all in terms of the single page width 'itemWidthPx'. Only
@@ -116,34 +140,19 @@ clampOffset = max (pageOffset (numPics - 1)) . min 0
 clampPage :: Int -> Int
 clampPage = max 0 . min (numPics - 1)
 -----------------------------------------------------------------------------
--- | All of the swiper's main-thread scratch — the sample's @useMainThreadRef@s,
--- grouped into one record behind a single 'IORef'. It is touched only inside MTS
--- handlers / rAF callbacks, so it never races the background thread. (It is a
--- module global rather than per-instance state because miso-native has no
--- @useMainThreadRef@ equivalent; fine for the single mounted swiper here.)
-data Drag = Drag
-  { startX      :: Double        -- ^ finger X at @touchstart@
-  , startOffset :: Double        -- ^ committed offset the drag began from
-  , curOffset   :: Double        -- ^ committed track offset (px; 0 at page 0, negative onward)
-  , pageIndex   :: Int           -- ^ page currently shown under the finger
-  , active      :: Bool          -- ^ finger currently down?
-  , wantOffset  :: Double        -- ^ latest offset the finger wants (written by @touchmove@)
-  , applied     :: Double        -- ^ offset the follow loop last painted (skip idle frames)
-  , velocity    :: Double        -- ^ smoothed finger velocity, px/ms (negative = swiping forward)
-  , lastTs      :: Double        -- ^ frame timestamp of the last velocity sample
-  , lastWant    :: Double        -- ^ 'wantOffset' at the last velocity sample
-  , track       :: Maybe DOMRef  -- ^ the track element, cached so click-to-jump can reach it
-  }
------------------------------------------------------------------------------
-drag :: IORef Drag
-drag = unsafePerformIO (newIORef (Drag 0 0 0 0 False 0 0 0 0 0 Nothing))
+-- This is like MainThreadRef in lynx
+drag :: MainThreadRef Drag
+drag = mainThreadRef (Drag 0 0 0 0 False 0 0 0 0 0 Nothing)
 {-# NOINLINE drag #-}
 -----------------------------------------------------------------------------
 readDrag :: IO Drag
-readDrag = readIORef drag
+readDrag = readMainThreadRef drag
 
 modifyDrag :: (Drag -> Drag) -> IO ()
-modifyDrag = modifyIORef' drag
+modifyDrag = modifyMainThreadRef drag
+
+modifyDrag_ :: State Drag () -> IO ()
+modifyDrag_ = modifyMainThreadRef_ drag
 -----------------------------------------------------------------------------
 updateModel :: Action -> Effect () () Model Action
 updateModel = \case
@@ -153,32 +162,47 @@ updateModel = \case
   TouchStart x ref -> io_ $ do
     d <- readDrag
     setStyleProperty ref "transition" "none"
-    let off = curOffset d
-    modifyDrag $ \s -> s
-      { startX = x, startOffset = off, track = Just ref
-      , wantOffset = off, applied = off, active = True
-      , velocity = 0, lastTs = 0, lastWant = off }
-    when (not (active d)) (startDragLoop ref)
+    let off = _curOffset d
+    modifyDrag_ $ do
+      startX .= x
+      startOffset .= off
+      track ?= ref
+      wantOffset .= off
+      applied .= off
+      active .= True
+      velocity .= 0
+      lastTs .= 0
+      lastWant .= off
+    when (not (_active d))
+      (startDragLoop ref)
 
   -- handleTouchMove: just record where the finger wants the track. The follow
   -- loop applies it once per frame — cheap here, so bursty touchmoves don't jank.
   TouchMove x _ -> io_ $
-    modifyDrag $ \s -> s { wantOffset = startOffset s + (x - startX s) }
+    modifyDrag_ $ do
+      so <- use startOffset
+      sx <- use startX
+      wantOffset .= so + (x - sx)
 
   -- handleTouchEnd: pick the target page (distance OR a flick), then hand the
   -- settle to a native CSS transition — no per-frame JS during the snap.
   TouchEnd ref -> withSink $ \sink -> do
-    modifyDrag $ \s -> s { active = False }
+    modifyDrag_ (active .= False)
     d <- readDrag
     when (itemWidthPx > 0) $ do
-      let to  = snapTarget (startOffset d) (curOffset d) (velocity d)
+      let to  = snapTarget (_startOffset d) (_curOffset d) (_velocity d)
           idx = pageAt to
-      modifyDrag $ \s -> s { startX = 0, startOffset = 0, curOffset = to, pageIndex = idx }
+      modifyDrag_ $ do
+        startX .= 0
+        startOffset .= 0
+        curOffset .= to
+        pageIndex .= idx
       paintSnap ref to
       sink (SetCurrent idx)
 
-  -- main→background: runOnBG re-posts this Int-carrying action to the background
-  -- thread, where 'modify' actually re-renders the indicator (the MTS never paints).
+  -- main→background: 'modify' sets the page, and the empty 'runOnBG' forces this
+  -- action to *also* run on the background thread, where that same 'modify' is the
+  -- one that actually repaints the indicator (the MTS never paints).
   SetCurrent i -> do
     modify $ \m -> m { current = i }
     runOnBG (const (pure ()))
@@ -188,26 +212,38 @@ updateModel = \case
     modify $ \m -> m { current = i }
     runOnMain $ \_ -> do
       d <- readDrag
-      case track d of
+      case _track d of
         Just ref
           | itemWidthPx > 0 -> do
-              modifyDrag $ \s -> s { curOffset = pageOffset i, pageIndex = i }
+              modifyDrag_ $ do
+                curOffset .= pageOffset i
+                pageIndex .= i
               paintSnap ref (pageOffset i)
         _ -> pure ()
 -----------------------------------------------------------------------------
 -- | Paint the track at @off@ (clamped) with no transition — the drag follow path.
+-- This runs once per animation frame during a drag, so it deliberately takes the
+-- lean route: a single 'setStyleProperty' with a hand-built string, no per-frame
+-- @[TransformFn]@ \/ list \/ tuple allocation (that DSL path is fine for the
+-- one-shot 'paintSnap', but its GC churn janks the hot gesture loop).
 paintOffset :: DOMRef -> Double -> IO ()
 paintOffset ref off = when (itemWidthPx > 0) $ do
   let real = clampOffset off
   setStyleProperty ref "transform" (translateXStr real)
-  modifyDrag $ \s -> s { curOffset = real, pageIndex = pageAt real }
+  modifyDrag_ $ do
+    curOffset .= real
+    pageIndex .= pageAt real
 -----------------------------------------------------------------------------
 -- | Settle to @to@ via a native compositor transition (ease-out) — the snap
 -- runs off the JS thread, so there are no per-frame flushes during it.
 paintSnap :: DOMRef -> Double -> IO ()
 paintSnap ref to = setStyleProperties ref
-  [ ("transition", "transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)")
-  , ("transform", translateXStr to)
+  -- The 'transition' *shorthand* (not the longhands): 'TouchStart' clears the
+  -- tween with @transition: none@, and Lynx keys inline styles by property name —
+  -- so a longhand @transition-duration@ would survive that reset and turn every
+  -- per-frame drag paint into a 0.3s tween. Same key in, same key out.
+  [ CSS.transition ("transform " <> CSS.s 0.3 <> " " <> CSS.cubicBezier 0.22 1 0.36 1)
+  , CSS.transforms [ CSS.translateX (CSS.px (round to)) ]
   ]
 -----------------------------------------------------------------------------
 -- | Where the swiper should settle after a drag. A page flips when the finger
@@ -234,35 +270,30 @@ snapTarget startO endO vel = pageOffset (clampPage (pageAt startO + step))
 -- | Fold this frame's finger motion into a smoothed velocity (px/ms). Skipped on
 -- the first sample (no prior timestamp) and when no time has elapsed.
 sampleVelocity :: Double -> Drag -> Drag
-sampleVelocity ts s = s { velocity = v, lastTs = ts, lastWant = wantOffset s }
+sampleVelocity ts s = s { _velocity = v, _lastTs = ts, _lastWant = _wantOffset s }
   where
-    dt = ts - lastTs s
-    v | lastTs s > 0 && dt > 0 = 0.6 * velocity s + 0.4 * ((wantOffset s - lastWant s) / dt)
-      | otherwise              = velocity s
+    dt = ts - _lastTs s
+    v | _lastTs s > 0 && dt > 0 = 0.6 * _velocity s + 0.4 * ((_wantOffset s - _lastWant s) / dt)
+      | otherwise              = _velocity s
 -----------------------------------------------------------------------------
 -- | The vsync-coalesced drag follow loop. Each animation frame it samples the
 -- finger velocity (for flick detection) and, if the finger moved, paints the
 -- latest 'wantOffset' — coalescing the device's bursty @touchmove@ stream to one
 -- flush per frame. Stops when 'active' clears (on touchend).
 startDragLoop :: DOMRef -> IO ()
-startDragLoop ref = do
-  cbRef <- newIORef jsNull
-  let step tsVal = do
-        d  <- readDrag
-        cb <- readIORef cbRef
-        if not (active d)
-          then freeFunction (Function cb)
-          else do
-            ts <- fromJSValUnchecked tsVal
-            modifyDrag (sampleVelocity ts)
-            when (wantOffset d /= applied d) $ do
-              modifyDrag $ \s -> s { applied = wantOffset d }
-              paintOffset ref (wantOffset d)
-            void (requestAnimationFrame cb)
-  cb <- syncCallback1 step
-  writeIORef cbRef cb
-  void (requestAnimationFrame cb)
+startDragLoop ref = eachFrame $ \ts -> do
+  d <- readDrag
+  if not (_active d)
+    then pure False
+    else do
+      modifyDrag (sampleVelocity ts)
+      when (_wantOffset d /= _applied d) $ do
+        modifyDrag_ (applied .= _wantOffset d)
+        paintOffset ref (_wantOffset d)
+      pure True
 -----------------------------------------------------------------------------
+-- | @translateX(Npx)@ — the lean, allocation-free string for the per-frame drag
+-- paint. (For non-hot paints prefer the typed 'CSS.transforms' \/ 'CSS.translateX'.)
 translateXStr :: Double -> MisoString
 translateXStr d = "translateX(" <> ms (round d :: Int) <> "px)"
 -----------------------------------------------------------------------------
