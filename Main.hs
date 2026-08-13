@@ -43,7 +43,7 @@ import           Miso.Lens
 import           Miso.Lens.TH
 import           Miso.DSL (jsg, (!), fromJSValUnchecked)
 import           Miso.Native.MainThread
-  ( setStyleProperty, setStyleProperties, eachFrame
+  ( setStyleProperty, setStyleProperties, setStylePropertyTransform, eachFrame
   , MainThreadRef, mainThreadRef, readMainThreadRef
   , modifyMainThreadRef, modifyMainThreadRef_ )
 import           System.IO.Unsafe (unsafePerformIO)
@@ -221,15 +221,13 @@ updateModel = \case
               paintSnap ref (pageOffset i)
         _ -> pure ()
 -----------------------------------------------------------------------------
--- | Paint the track at @off@ (clamped) with no transition — the drag follow path.
--- This runs once per animation frame during a drag, so it deliberately takes the
--- lean route: a single 'setStyleProperty' with a hand-built string, no per-frame
--- @[TransformFn]@ \/ list \/ tuple allocation (that DSL path is fine for the
--- one-shot 'paintSnap', but its GC churn janks the hot gesture loop).
+-- | Paint the track at @off@ (clamped) with no transition — the drag follow path,
+-- run once per animation frame during a drag. The snap tween is already cleared
+-- (@transition: none@ from 'TouchStart'), so this is an instant transform.
 paintOffset :: DOMRef -> Double -> IO ()
 paintOffset ref off = when (itemWidthPx > 0) $ do
   let real = clampOffset off
-  setStyleProperty ref "transform" (translateXStr real)
+  setStylePropertyTransform ref [ CSS.translateX (CSS.px (round real)) ]
   modifyDrag_ $ do
     curOffset .= real
     pageIndex .= pageAt real
@@ -238,11 +236,11 @@ paintOffset ref off = when (itemWidthPx > 0) $ do
 -- runs off the JS thread, so there are no per-frame flushes during it.
 paintSnap :: DOMRef -> Double -> IO ()
 paintSnap ref to = setStyleProperties ref
-  -- The 'transition' *shorthand* (not the longhands): 'TouchStart' clears the
-  -- tween with @transition: none@, and Lynx keys inline styles by property name —
-  -- so a longhand @transition-duration@ would survive that reset and turn every
-  -- per-frame drag paint into a 0.3s tween. Same key in, same key out.
-  [ CSS.transition ("transform " <> CSS.s 0.3 <> " " <> CSS.cubicBezier 0.22 1 0.36 1)
+  -- 'CSS.transition_' emits the single @transition@ *shorthand* key, the same one
+  -- 'TouchStart' clears with @transition: none@. The longhands would be separate
+  -- keys the reset can't reach, so @transition-duration@ would survive and turn
+  -- every per-frame drag paint into a 0.3s tween.
+  [ CSS.transition_ "transform" (CSS.s 0.3) (CSS.cubicBezier 0.22 1 0.36 1)
   , CSS.transforms [ CSS.translateX (CSS.px (round to)) ]
   ]
 -----------------------------------------------------------------------------
@@ -291,11 +289,6 @@ startDragLoop ref = eachFrame $ \ts -> do
         modifyDrag_ (applied .= _wantOffset d)
         paintOffset ref (_wantOffset d)
       pure True
------------------------------------------------------------------------------
--- | @translateX(Npx)@ — the lean, allocation-free string for the per-frame drag
--- paint. (For non-hot paints prefer the typed 'CSS.transforms' \/ 'CSS.translateX'.)
-translateXStr :: Double -> MisoString
-translateXStr d = "translateX(" <> ms (round d :: Int) <> "px)"
 -----------------------------------------------------------------------------
 -- | The finger's window X (the sample's @e.touches[0].clientX@).
 touchX :: VE.TouchEvent -> Double
