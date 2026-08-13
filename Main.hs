@@ -88,10 +88,14 @@ data Action
   -- ^ MTS: finger at this clientX; translate the track and (maybe) flip the page
   | TouchEnd DOMRef
   -- ^ MTS: finger up; animate a snap to the nearest page
+  | Snapped Int
+  -- ^ MTS→BTS: the drag settled on page i; hand it to the model-owning thread
   | SetCurrent Int
-  -- ^ main→background bridge: publish the current page to the indicator
+  -- ^ BTS: commit the current page (repaints the indicator)
   | JumpTo Int
-  -- ^ background→main: a dot was tapped; set the page and jump the track
+  -- ^ BTS: a dot was tapped; set the page and glide the track
+  | GlideTo Int
+  -- ^ BTS→MTS: imperatively glide the track to page i
   deriving stock (Generic)
   deriving anyclass (ToJSON, FromJSON)
 -----------------------------------------------------------------------------
@@ -198,28 +202,33 @@ updateModel = \case
         curOffset .= to
         pageIndex .= idx
       paintSnap ref to
-      sink (SetCurrent idx)
+      sink (Snapped idx)
 
-  -- main→background: 'modify' sets the page, and the empty 'runOnBG' forces this
-  -- action to *also* run on the background thread, where that same 'modify' is the
-  -- one that actually repaints the indicator (the MTS never paints).
-  SetCurrent i -> do
-    modify $ \m -> m { current = i }
-    runOnBG (const (pure ()))
+  -- MTS→BTS: the model is owned by the background thread, so the settled page is
+  -- forwarded there; 'SetCurrent' runs its 'update' on the BTS ('runOnBG').
+  Snapped i -> runOnBG (SetCurrent i)
 
-  -- handleItemClick: set the page (renders dots), then glide the track on the MTS.
+  -- BTS: commit the current page. Runs on the model-owning thread, so 'modify'
+  -- repaints the indicator.
+  SetCurrent i -> modify $ \m -> m { current = i }
+
+  -- handleItemClick (BTS): set the page (repaints the dots), then glide the track
+  -- imperatively on the MTS via 'runOnMain'.
   JumpTo i -> do
     modify $ \m -> m { current = i }
-    runOnMain $ \_ -> do
-      d <- readDrag
-      case _track d of
-        Just ref
-          | itemWidthPx > 0 -> do
-              modifyDrag_ $ do
-                curOffset .= pageOffset i
-                pageIndex .= i
-              paintSnap ref (pageOffset i)
-        _ -> pure ()
+    runOnMain (GlideTo i)
+
+  -- BTS→MTS: imperatively glide the track to page i (main-thread element write).
+  GlideTo i -> io_ $ do
+    d <- readDrag
+    case _track d of
+      Just ref
+        | itemWidthPx > 0 -> do
+            modifyDrag_ $ do
+              curOffset .= pageOffset i
+              pageIndex .= i
+            paintSnap ref (pageOffset i)
+      _ -> pure ()
 -----------------------------------------------------------------------------
 -- | Paint the track at @off@ (clamped) with no transition — the drag follow path,
 -- run once per animation frame during a drag. The snap tween is already cleared
