@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE StaticPointers     #-}
-{-# LANGUAGE QuasiQuotes        #-}
 {-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE TemplateHaskell    #-}
 {-# LANGUAGE OverloadedStrings  #-}
@@ -38,12 +37,12 @@ import           Miso.Native
 import           Miso.Html.Property (className)
 import qualified Miso.CSS as CSS
 import           Miso.String (MisoString, ms)
-import           Miso.FFI.QQ (js)
 import           Miso.Lens
 import           Miso.Lens.TH
 import           Miso.DSL (jsg, (!), fromJSValUnchecked)
 import           Miso.Native.MainThread
   ( setStyleProperty, setStyleProperties, setStylePropertyTransform, eachFrame
+  , getSystemInfo, SystemInfo(pixelWidth, pixelRatio)
   , MainThreadRef, mainThreadRef, readMainThreadRef
   , modifyMainThreadRef, modifyMainThreadRef_ )
 import           System.IO.Unsafe (unsafePerformIO)
@@ -113,16 +112,18 @@ swiperComponent :: Component () () Model Action
 swiperComponent = component (Model 0) updateModel viewModel
 -----------------------------------------------------------------------------
 -- | One page's width in px — the sample's @SystemInfo.pixelWidth /
--- SystemInfo.pixelRatio@, read from @lynx.SystemInfo@ (its real location; miso,
--- unlike ReactLynx, does not mirror it onto @globalThis@). Guarded so a missing
--- global yields 0 (a blank swiper) rather than throwing during render. Each Lynx
--- realm forces this CAF against its own @lynx.SystemInfo@; both report the same
--- device width, so it is consistent across the MTS/BTS split.
+-- SystemInfo.pixelRatio@, read from @lynx.SystemInfo@ via 'getSystemInfo' (its
+-- real location; miso, unlike ReactLynx, does not mirror it onto @globalThis@).
+-- 'getSystemInfo' is 'Nothing' off the main thread (and on a decode failure), in
+-- which case we fall back to 0, so an absent global yields a blank swiper rather
+-- than throwing during render. Each Lynx realm forces this CAF against its own
+-- @lynx.SystemInfo@.
 itemWidthPx :: Double
-itemWidthPx = unsafePerformIO [js|
-  var si = lynx.SystemInfo;
-  return (si && si.pixelRatio > 0) ? (si.pixelWidth / si.pixelRatio) : 0;
-|]
+itemWidthPx = unsafePerformIO $ do
+  msi <- getSystemInfo
+  pure $ case msi of
+    Just si | pixelRatio si > 0 -> pixelWidth si / pixelRatio si
+    _                           -> 0
 {-# NOINLINE itemWidthPx #-}
 -----------------------------------------------------------------------------
 -- Track geometry, all in terms of the single page width 'itemWidthPx'. Only

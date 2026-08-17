@@ -43,28 +43,6 @@ nix develop -c http-server result -p 8080
 
 (Any static file server works — e.g. `python3 -m http.server 8080 -d result`.)
 
-## Hacking on miso at the same time
-
-`nix build` uses miso from GitHub (`github:dmjio/miso/dual-thread`). To build
-against a **local** miso checkout with uncommitted changes, override the input —
-use an **absolute** path (a relative `path:../miso` doesn't resolve from a git
-flake):
-
-```bash
-nix build --override-input miso path:/absolute/path/to/miso
-```
-
-For a faster edit→bundle loop than a full `nix build`, work in the toolchain
-shell and drive cabal directly. `cabal.project` points at a sibling `../miso`
-checkout for this:
-
-```bash
-nix develop .#native
-cabal build --with-compiler=javascript-unknown-ghcjs-ghc \
-            --with-hc-pkg=javascript-unknown-ghcjs-ghc-pkg
-# then bundle the resulting all.js with rspeedy (see mkLynxBundle in miso)
-```
-
 ## How it works
 
 - **MVU.** `model` is just the set of liked card indices. `update` toggles a
@@ -82,6 +60,38 @@ cabal build --with-compiler=javascript-unknown-ghcjs-ghc \
 - **Bundling.** The whole `all.js → .lynx.bundle` step (minify, compile in
   `styles.css`, inline the assets) is miso's reusable
   `miso.lib.${system}.mkLynxBundle`, consumed by `flake.nix`.
+
+## The `product-detail` branch
+
+The `product-detail` branch is a second port from the same LynxJS tutorial
+series — the [**Product Detail** tutorial](https://lynxjs.org/learn/product-detail),
+a faithful reproduction of `lynx-family/lynx-examples/examples/swiper` (its final
+`src/Swiper` stage). It replaces the gallery `Main.hs` with a hand-rolled,
+high-performance **image swiper**: a horizontal track of full-width product
+photos dragged with the finger and snapped to the nearest page on release, a live
+page indicator that supports click-to-jump, over the product-detail chrome (price
+card + order bar).
+
+- **Dual-thread by construction.** All touch handling runs on the **main thread**
+  (the sample's `main-thread:bindtouch*`) as `onTouch*Main` handlers; the only
+  render-driving state (`Model`, just the highlighted page) lives on the
+  **background thread**. The two are bridged explicitly: `Snapped`/`SetCurrent`
+  cross MTS→BTS via `runOnBG`, and click-to-jump crosses BTS→MTS via `runOnMain`.
+- **Main-thread scratch.** The drag state (offsets, velocity, cached track ref)
+  is the sample's `useMainThreadRef`, here one `MainThreadRef Drag` touched only
+  inside MTS handlers / rAF callbacks, so it never races the model.
+- **vsync-coalesced follow loop.** `touchmove` only records where the finger
+  wants the track; an `eachFrame` loop paints the latest offset once per frame
+  (and samples velocity for flick detection), coalescing the device's bursty
+  touch stream to one flush per frame. The snap on release is a native
+  compositor `transition` (ease-out) — no per-frame JS during the tween.
+- **`itemWidth`.** Page width is the sample's exact `SystemInfo.pixelWidth /
+  SystemInfo.pixelRatio`, read from its true home `lynx.SystemInfo` (which is
+  **MTS-only**), with a safe fallback so it never throws during render.
+
+Same build flow as `main` — `nix build` → `result/main.lynx.bundle`. The assets
+differ (`1.png`..`8.png`, `heart.png`, `star.png`, `back.png`); they're embedded
+into the bundle the same way (see **How it works → Images** above).
 
 ## Credit
 

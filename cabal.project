@@ -4,7 +4,6 @@
 -- (github.com/dmjio/miso) instead if you don't keep miso checked out alongside.
 packages:
   .
-  ../miso
 
 allow-newer:
   all:base
