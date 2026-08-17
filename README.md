@@ -1,4 +1,4 @@
-# miso-lynx-gallery
+# 📱 🛋️ miso-lynx-gallery
 
 The LynxJS [**Product Gallery** tutorial](https://lynxjs.org/learn/gallery),
 rebuilt in Haskell on [miso](https://github.com/dmjio/miso)'s **native
