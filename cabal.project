@@ -11,3 +11,8 @@ allow-newer:
 -- miso's native (LynxJS dual-thread) backend + TH lens generation.
 package miso
   flags: +template-haskell +native
+
+source-repository-package
+  type: git
+  location: https://github.com/dmjio/miso
+  tag: master
