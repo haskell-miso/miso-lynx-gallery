@@ -4,6 +4,22 @@ The LynxJS [**Product Gallery** tutorial](https://lynxjs.org/learn/gallery),
 rebuilt in Haskell on [miso](https://github.com/dmjio/miso)'s **native
 (LynxJS dual-thread)** backend.
 
+<table>
+<tr>
+<td>
+
+https://github.com/user-attachments/assets/db32d6b8-6a30-48d5-b92e-6f9be92387f2
+
+</td>
+<td>
+
+https://github.com/user-attachments/assets/a9c5dfc2-2a53-42ef-83a8-ca8a8a363ba0
+
+</td>
+</tr>
+</table>
+
+
 A full-height black page with a two-column **waterfall** `<list>` of rounded
 furniture cards, each with a tap-to-like heart (white → red, with a one-shot
 ripple), and native **auto-scroll**. It compiles to a real `.lynx.bundle` via the
@@ -12,18 +28,9 @@ inside the bundle — no asset server, fully offline.
 
 <p align="center"><em>75 cards · MVU · runs on the LynxExplorer / any Lynx host app</em></p>
 
-## Layout
+## Source
 
-```
-Main.hs                     -- the whole app (MVU: model, update, view)
-styles.css                  -- class rules + @keyframes (compiled into the bundle, cssId 0)
-assets/
-  furnitures/0.png..14.png  -- the tutorial's 15 furniture photos (repeated x5 = 75 cards)
-  redHeart.png whiteHeart.png
-miso-lynx-gallery.cabal
-flake.nix                   -- consumes miso.lib.${system}.{ ghcNative, mkLynxBundle }
-cabal.project               -- only for the incremental cabal dev loop (see below)
-```
+[Source](https://github.com/haskell-miso/miso-lynx-gallery/blob/product-detail/Main.hs)
 
 ## Build
 
@@ -42,24 +49,6 @@ nix develop -c http-server result -p 8080
 ```
 
 (Any static file server works — e.g. `python3 -m http.server 8080 -d result`.)
-
-## How it works
-
-- **MVU.** `model` is just the set of liked card indices. `update` toggles a
-  like and, on mount, kicks off native `autoScroll` (rate 60). `view` builds the
-  two-column waterfall from the 15 furniture images cycled to 75 cards.
-- **CSS.** Lynx compiles CSS ahead of time under the global `cssId 0`, so
-  `styles.css` is `import`ed by the rspeedy entry and `className "…"` resolves
-  against it on device (runtime `document`-style injection doesn't work on Lynx).
-  The like ripple is a `@keyframes ripple` in that stylesheet.
-- **Images.** The Lynx `<image>` element can't resolve a relative `src` against
-  the bundle, and rspeedy never sees the `src` strings the GHC JS backend emits.
-  So miso's `mkLynxBundle` `import`s every PNG with `?inline` (rspeedy embeds each
-  as a `data:` URI **in the bundle**) and registers them by name on
-  `globalThis.__galleryAssets`; `Main.hs`'s `asset` reads that registry back.
-- **Bundling.** The whole `all.js → .lynx.bundle` step (minify, compile in
-  `styles.css`, inline the assets) is miso's reusable
-  `miso.lib.${system}.mkLynxBundle`, consumed by `flake.nix`.
 
 ## The `product-detail` branch
 
