@@ -6,3 +6,4 @@ dist-newstyle/
 *.o
 .DS_Store
 /TAGS
+*~
