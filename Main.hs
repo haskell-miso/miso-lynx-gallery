@@ -106,7 +106,7 @@ newtype Model = Model
     deriving anyclass (ToJSON, FromJSON)
 -----------------------------------------------------------------------------
 main :: IO ()
-main = native VE.viewEvents (static (mountStatic_ swiperComponent))
+main = native VE.viewEvents (static (mountStatic swiperComponent))
 -----------------------------------------------------------------------------
 swiperComponent :: Component () () Model Action
 swiperComponent = component (Model 0) updateModel viewModel
