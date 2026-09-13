@@ -304,8 +304,8 @@ startDragLoop ref = eachFrame $ \ts -> do
 touchX :: VE.TouchEvent -> Double
 touchX = fst . VE.client
 -----------------------------------------------------------------------------
-viewModel :: () -> () -> Model -> View () Model Action
-viewModel _ _ Model{..} = view_ [ className "safe-area" ]
+viewModel :: Model -> View () () Model Action
+viewModel Model{..} = view_ [ className "safe-area" ]
   [ view_ [ className "page-container" ]
     [ swiper current
     , cardDetail
@@ -315,7 +315,7 @@ viewModel _ _ Model{..} = view_ [ className "safe-area" ]
 -----------------------------------------------------------------------------
 -- | The swiper: a full-width viewport holding the draggable track (all touch
 -- handling on the main thread) and the page indicator.
-swiper :: Int -> View () Model Action
+swiper :: Int -> View () () Model Action
 swiper cur = view_ [ className "swiper-wrapper" ]
   [ view_ [ className "swiper-container", touchStart, touchMove, touchEnd ]
       [ swiperItem i | i <- [0 .. numPics - 1] ]
@@ -327,7 +327,7 @@ swiper cur = view_ [ className "swiper-wrapper" ]
     touchEnd   = event (static (VE.onTouchEndMainWith   (\_ _ ref -> TouchEnd ref)))
 -----------------------------------------------------------------------------
 -- | One page: a full-width (100vw == itemWidth) cell with an aspect-filled photo.
-swiperItem :: Int -> View () Model Action
+swiperItem :: Int -> View () () Model Action
 swiperItem i = view_
   [ className "swiper-item"
   , CSS.style_ [ CSS.width (ms (show itemWidthPx) <> "px"), CSS.height "100%" ]
@@ -340,7 +340,7 @@ swiperItem i = view_
 -----------------------------------------------------------------------------
 -- | The dots. The active dot is a single-token class (native @className@ takes
 -- one token per node), and tapping a dot jumps to that page.
-indicator :: Int -> View () Model Action
+indicator :: Int -> View () () Model Action
 indicator cur = view_ [ className "indicator" ]
   [ view_
       [ className (if i == cur then "indicator-item-active" else "indicator-item")
@@ -351,7 +351,7 @@ indicator cur = view_ [ className "indicator" ]
   ]
 -----------------------------------------------------------------------------
 -- | The floating price card: price, sales count, description, and a heart.
-cardDetail :: View () Model Action
+cardDetail :: View () () Model Action
 cardDetail = view_ [ className "card-detail-container" ]
   [ view_ [ className "card-detail" ]
     [ view_ [ className "card-detail-title" ]
@@ -369,7 +369,7 @@ cardDetail = view_ [ className "card-detail-container" ]
   ]
 -----------------------------------------------------------------------------
 -- | The bottom call-to-action bar.
-orderButton :: View () Model Action
+orderButton :: View () () Model Action
 orderButton = view_ [ className "order-button" ]
   [ text_ [ className "order-text" ] [ text "Order Now" ] ]
 -----------------------------------------------------------------------------
