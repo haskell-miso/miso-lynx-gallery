@@ -67,7 +67,7 @@ newtype Model = Model
 main :: IO ()
 main = do
   -- enableDebugging
-  native [("tap", BUBBLE)] (static (mountStatic_ galleryComponent))
+  native [("tap", BUBBLE)] (static (mountStatic galleryComponent))
 -----------------------------------------------------------------------------
 galleryComponent :: Component () () Model Action
 galleryComponent =
@@ -78,7 +78,7 @@ galleryComponent =
 galleryListSel :: MisoString
 galleryListSel = "#gallery-list"
 -----------------------------------------------------------------------------
-updateModel :: Action -> Effect () () Model Action
+updateModel :: Action -> Effect context props Model Action
 updateModel = \case
   Like i ->
     -- toggle: tapping a filled heart unlikes it
@@ -92,8 +92,8 @@ updateModel = \case
   Noop ->
     pure ()
 -----------------------------------------------------------------------------
-viewModel :: () -> () -> Model -> View () Model Action
-viewModel _ _ Model{..} = view_
+viewModel :: Model -> View context props Model Action
+viewModel Model{..} = view_
   [ className "gallery-wrapper" ]
   [ list_ (ListOptions Waterfall 2 Vertical)
     [ id_ "gallery-list"
@@ -108,7 +108,7 @@ viewModel _ _ Model{..} = view_
   ]
 -----------------------------------------------------------------------------
 -- | One waterfall card: a rounded image with a like-icon overlay.
-card :: [Int] -> Int -> View () Model Action
+card :: [Int] -> Int -> View context props Model Action
 card likedList i = listItem_
   [ itemKey_ ("pic-" <> ms i) ]
   [ view_ [ className "picture-wrapper" ]
@@ -123,7 +123,7 @@ card likedList i = listItem_
 -- | Top-right heart. The tutorial's @whiteHeart.png@ until liked, then
 -- @redHeart.png@; liking renders the two ripple circles, whose one-shot
 -- @ripple@ keyframe fires as they mount. Tapping again unlikes (toggles).
-likeIcon :: Bool -> Int -> View () Model Action
+likeIcon :: Bool -> Int -> View context props Model Action
 likeIcon isLiked i = view_
   [ className "like-icon", VE.onTap (Like i) ]
   ( ripples ++
